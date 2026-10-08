@@ -76,6 +76,8 @@ h1.title small{font-size:.6em}
 .strip{position:relative;height:var(--stripH);border-radius:5px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:var(--stripFs);
   box-shadow:inset 0 0 0 3px rgba(0,0,0,.2),inset 0 -6px 0 rgba(0,0,0,.08);text-shadow:0 1px 2px rgba(0,0,0,.35);white-space:nowrap;overflow:hidden}
 .s10{background:var(--c10)}.s5{background:var(--c5)}.s1{background:var(--c1)}
+.strip.stack{flex-direction:column;line-height:1.05;gap:1px}
+.strip.stack .unit{letter-spacing:0;font-weight:800}
 .placed{position:absolute;touch-action:none;cursor:grab}
 .placed.pop{animation:pop .25s ease-out}
 .placed.lifted{opacity:.15}
@@ -514,6 +516,15 @@ function stripLabel(len){
 function makeStrip(len){
   var d=document.createElement('div');
   d.className='strip s'+len;d.style.width=(len*M.s)+'px';d.dataset.len=len;
+  if(len===1){
+    // narrow 1cm strip: stack 「1」 over a smaller 「厘米」 so it fits inside the strip
+    var w=M.s,uf=Math.max(10,Math.min(Math.floor((w-6)/2),Math.round(M.stripFs*0.75)));
+    d.classList.add('stack');
+    var n=document.createElement('span');n.className='num';n.textContent='1';n.style.fontSize=Math.min(M.stripFs,Math.round(uf*1.5))+'px';
+    var u=document.createElement('span');u.className='unit';u.textContent='厘米';u.style.fontSize=uf+'px';
+    d.appendChild(n);d.appendChild(u);
+    return d;
+  }
   var sp=document.createElement('span');sp.textContent=stripLabel(len);d.appendChild(sp);
   return d;
 }
