@@ -136,7 +136,7 @@ h1.title .emoji{display:inline-block;margin:0 .15em}
 <section id="start" class="screen on" aria-label="開始畫面">
   <div class="startInner">
     <h1 class="title"><span class="emoji">🔢</span>數的分解與合成<span class="emoji">✨</span></h1>
-    <p class="sub">小一 · 2 至 13 · 點選作答</p>
+    <p class="sub">小一 · 4 至 13 · 點選作答</p>
 
     <div class="modes" role="group" aria-label="模式">
       <button type="button" class="mode sel" id="modeStudent" data-mode="student">
@@ -154,10 +154,10 @@ h1.title .emoji{display:inline-block;margin:0 .15em}
     <div class="sec">
       <div class="seclabel">數目範圍</div>
       <div class="segs" id="rangeSegs" role="group">
-        <button type="button" class="seg" data-range="2-5">2–5</button>
+        <button type="button" class="seg" data-range="4-5">4–5</button>
         <button type="button" class="seg sel" data-range="6-10">6–10</button>
         <button type="button" class="seg" data-range="11-13">11–13</button>
-        <button type="button" class="seg" data-range="2-13">2–13</button>
+        <button type="button" class="seg" data-range="4-13">4–13</button>
       </div>
     </div>
 
@@ -309,44 +309,60 @@ const S = {
 };
 
 function parseRange(r){
-  const [a,b] = r.split("-").map(Number);
+  // Migrate old saved ranges that included totals <4
+  const map = {"2-5":"4-5","2-13":"4-13","3-5":"4-5"};
+  if(map[r]) r = map[r];
+  let [a,b] = r.split("-").map(Number);
+  if(!Number.isFinite(a) || !Number.isFinite(b)){ a=6; b=10; }
+  // Parts must be ≥2, so totals must be ≥4
+  a = Math.max(4, a);
+  b = Math.max(a, b);
   return {lo:a, hi:b};
 }
 
+const MIN_PART = 2; // never use 0 or 1 as a part
+
 /* ---------- question generation ---------- */
+/** Valid bonds for n: both parts ≥ MIN_PART. */
 function allBonds(n){
   const out=[];
-  for(let a=0;a<=n;a++) out.push([a, n-a]);
+  for(let a=MIN_PART; a<=n-MIN_PART; a++) out.push([a, n-a]);
   return out;
 }
 
+function validPartChoices(total){
+  // Numbers a student may tap for a part when splitting `total`
+  const out=[];
+  for(let n=MIN_PART; n<=total-MIN_PART; n++) out.push(n);
+  return out;
+}
+
+function isValidBond(a,b,total){
+  return a>=MIN_PART && b>=MIN_PART && a+b===total;
+}
+
 function makeSplit(total){
-  const bonds = allBonds(total);
-  // correct is any valid pair; we store one "canonical" but accept either order of any valid pair... wait
-  // For split, student fills two boxes that must sum to total. ANY pair that sums to total is correct,
-  // and order either way is fine for the same pair. Actually ANY [a,b] with a+b===total is correct.
-  // We'll generate choices as number buttons 0..total, student picks two numbers.
   return {
     type: "split",
     total,
-    // no single correct — validated by a+b===total
     speak: `把 ${total} 分成兩部分`,
     prompt: `把 <span style="color:var(--purple)">${total}</span> 分成兩部分`,
   };
 }
 
 function makeJoin(total){
-  const a = randInt(0, total);
+  // Both parts ≥2
+  const a = randInt(MIN_PART, total-MIN_PART);
   const b = total - a;
-  // options: total + 3 distractors
+  // Answer options are totals — never 0 or 1
   let opts = [total];
-  while(opts.length<4){
-    const d = randInt(Math.max(0,total-4), total+4);
-    if(d!==total && d>=0 && d<=13 && !opts.includes(d)) opts.push(d);
+  let guard=0;
+  while(opts.length<4 && guard++<40){
+    const d = randInt(4, 13);
+    if(d!==total && !opts.includes(d)) opts.push(d);
   }
-  // pad if needed
-  let k=0;
-  while(opts.length<4){ const d=(total+1+k)%14; if(!opts.includes(d)) opts.push(d); k++; }
+  let k=4;
+  while(opts.length<4){ if(!opts.includes(k) && k!==0 && k!==1) opts.push(k); k++; if(k>13) k=4; }
   shuffle(opts);
   return {
     type: "join",
@@ -358,17 +374,19 @@ function makeJoin(total){
 }
 
 function makeFriend(total){
-  // ? + known = total   OR  known + ? = total
-  const known = randInt(0, total);
+  // known and missing both ≥2
+  const known = randInt(MIN_PART, total-MIN_PART);
   const missing = total - known;
   const leftMissing = Math.random()<0.5;
   let opts = [missing];
-  while(opts.length<4){
-    const d = randInt(0, total);
+  let guard=0;
+  while(opts.length<4 && guard++<40){
+    const d = randInt(MIN_PART, Math.max(MIN_PART, total-MIN_PART));
     if(!opts.includes(d)) opts.push(d);
   }
-  let k=0;
-  while(opts.length<4){ const d=(missing+1+k)%(total+1); if(!opts.includes(d)&&d>=0) opts.push(d); k++; }
+  // pad with other ≥2 values up to 13, never 0/1
+  let k=MIN_PART;
+  while(opts.length<4){ if(!opts.includes(k)) opts.push(k); k++; if(k>13) break; }
   shuffle(opts);
   const speak = leftMissing
     ? `幾多加 ${known} 等於 ${total}？`
@@ -396,7 +414,6 @@ function buildRound(){
   for(let i=0;i<S.count;i++){
     const total = randInt(lo, hi);
     const t = types[i % types.length];
-    // shuffle type order by picking randomly among available after first pass
     const typ = (i < types.length) ? t : types[randInt(0, types.length-1)];
     if(typ==="split") qs.push(makeSplit(total));
     else if(typ==="join") qs.push(makeJoin(total));
@@ -636,7 +653,10 @@ function applySaved(){
   const s = loadSettings();
   if(!s) return;
   if(s.mode) S.mode = s.mode;
-  if(s.range) S.range = s.range;
+  if(s.range){
+    const map = {"2-5":"4-5","2-13":"4-13","3-5":"4-5"};
+    S.range = map[s.range] || s.range;
+  }
   if(s.count) S.count = s.count;
   if(s.types) S.types = Object.assign(S.types, s.types);
   if(typeof s.sound==="boolean") S.sound = s.sound;
@@ -727,12 +747,12 @@ function showQuestion(){
       const np = document.createElement("div");
       np.className = "numpad";
       np.id = "numpad";
-      for(let n=0;n<=q.total;n++){
+      validPartChoices(q.total).forEach(n=>{
         const b = document.createElement("button");
         b.type="button"; b.className="nb"; b.textContent=String(n); b.dataset.n=n;
         b.addEventListener("click", ()=> onSplitPick(+b.dataset.n, b));
         np.appendChild(b);
-      }
+      });
       // clear button
       const clr = document.createElement("button");
       clr.type="button"; clr.className="nb"; clr.textContent="清除"; clr.style.fontSize="clamp(16px,2.8vmin,28px)";
@@ -804,7 +824,7 @@ function onSplitPick(n, btn){
     btn.classList.add("sel");
     renderSplitVisual(q.total, S.pickA, S.pickB);
     // check: accept either order — any pair summing to total is correct
-    const ok = (S.pickA + S.pickB === q.total);
+    const ok = isValidBond(S.pickA, S.pickB, q.total);
     finishAnswer(ok, `${S.pickA} + ${S.pickB} = ${q.total}`);
   }
 }
@@ -860,13 +880,15 @@ function teacherReveal(){
 
   if(q.type==="split"){
     // pick a nice demo bond: avoid 0 if possible for teaching, unless total is small
-    let a = Math.floor(q.total/2);
-    let b = q.total - a;
-    // show one example; also list that other bonds exist
+    const bonds = allBonds(q.total);
+    let a = Math.floor(q.total/2), b = q.total - a;
+    if(a < MIN_PART || b < MIN_PART){
+      if(bonds.length){ a = bonds[0][0]; b = bonds[0][1]; }
+    }
     S.pickA=a; S.pickB=b;
     renderSplitVisual(q.total, a, b);
     $("#qline").innerHTML = `<span class="info">${a} + ${b} = ${q.total}</span>`;
-    const others = allBonds(q.total).filter(([x,y])=>!(x===a&&y===b)&&!(x===b&&y===a)&&x<=y)
+    const others = bonds.filter(([x,y])=>!(x===a&&y===b)&&!(x===b&&y===a)&&x<=y)
       .map(([x,y])=>`${x}+${y}`).slice(0,6).join("、");
     $("#hintLine").textContent = others ? `其他分法：${others}` : "";
   } else if(q.type==="join"){
@@ -943,7 +965,7 @@ window.__NB = {
   };},
   startGame,
   buildRound,
-  allBonds,
+  allBonds, validPartChoices, isValidBond, MIN_PART,
   persist,
   setTypes(t){ Object.assign(S.types,t); persist(); },
   setRange(r){ S.range=r; persist(); },
