@@ -107,7 +107,13 @@ h1.title small{font-size:.6em}
 #actionRow{min-height:calc(var(--stripH) + 24px)}
 #game.done #btnNext{display:inline-block}
 #game.done .tray,#game.done .tools{display:none}
+#game.pure .tray,#game.pure .tools{display:none}
+#game.pure #btnNext{display:none}
+#game.pure.done #btnNext{display:inline-block}
 #btnNext[disabled]{opacity:.5}
+#pureBanner{display:none;flex:none;align-self:center;margin:2px 12px 0;padding:8px 18px;border-radius:999px;background:#ffe08a;border:4px solid #f0a500;color:#7a4a00;font-weight:900;font-size:clamp(18px,3.2vmin,34px);text-align:center;line-height:1.3;max-width:94vw}
+#game.pure #pureBanner{display:block}
+.chip.pure{border:2px solid #f0a500}
 #answers{flex:none;display:flex;justify-content:center;gap:clamp(10px,1.8vmin,22px);padding:0 12px;flex-wrap:wrap}
 .ans{flex:1 1 0;max-width:290px;min-width:130px;min-height:var(--abh);border-radius:24px;background:#fff;box-shadow:0 6px 0 #d9c99c;border:5px solid #ffd27a;font-size:var(--abfs);font-weight:900;white-space:nowrap;padding:0 10px}
 .ans .u{font-size:.72em}
@@ -158,13 +164,13 @@ body.teacher .iconbtn{min-width:clamp(64px,8vmin,90px);height:clamp(64px,8vmin,9
 <section id="start" class="screen on" aria-label="開始">
   <div class="startInner">
     <h1 class="title">📏 估量長度<small>（厘米）</small></h1>
-    <p class="sub">用 <b class="bc10">10厘米</b> <b class="bc5">5厘米</b> <b class="bc1">1厘米</b> 紙條，<br>估一估東西大約有多長！</p>
+    <p class="sub">用 <b class="bc10">10厘米</b> <b class="bc5">5厘米</b> <b class="bc1">1厘米</b> 紙條估一估，<br>之後再有 5 題「純估」——唔好用紙條，直接估！</p>
     <div class="modes">
       <button class="mode" data-mode="student" id="modeStudent"><div class="mi">🧒</div><div class="mt">學生模式</div><div class="md">每人一部 iPad：自己拖紙條，再選答案。</div></button>
       <button class="mode" data-mode="teacher" id="modeTeacher"><div class="mi">🧑‍🏫</div><div class="mt">老師模式</div><div class="md">投影上白板：全班一起估，老師按「顯示答案」。</div></button>
     </div>
     <div class="opts">
-      <div class="opt"><span class="ol">題數</span><button class="seg" data-count="8">8 題</button><button class="seg" data-count="10">10 題</button></div>
+      <div class="opt"><span class="ol">紙條題</span><button class="seg" data-count="8">8 題</button><button class="seg" data-count="10">10 題</button><span class="ol" style="opacity:.75">＋5 純估</span></div>
       <div class="opt"><span class="ol">讀音提示</span><button class="seg" data-speech="1">🔊 開</button><button class="seg" data-speech="0">關</button></div>
       <div class="opt"><span class="ol">聲效</span><button class="seg" data-sound="1">🎵 開</button><button class="seg" data-sound="0">關</button></div>
     </div>
@@ -184,6 +190,7 @@ body.teacher .iconbtn{min-width:clamp(64px,8vmin,90px);height:clamp(64px,8vmin,9
     <button id="btnSpeak" class="iconbtn" aria-label="讀出題目">🔊</button>
   </div>
   <div id="qline" aria-live="polite"></div>
+  <div id="pureBanner" role="status">👀 純估題：唔好用紙條，直接估多少厘米</div>
   <div class="flex1"></div>
   <div id="boardWrap"><div id="board"></div></div>
   <div class="flex1"></div>
@@ -426,9 +433,18 @@ function makeOptions(L,n){
   return picked.sort(function(a,b){return a-b;});
 }
 
+var PURE_N=5;  // fixed pure-estimate questions after strip phase
+function makeQ(o,type){return {obj:o,options:makeOptions(o.L,4),type:type};}
+function isPure(){return !!(G&&G.qs[G.i]&&G.qs[G.i].type==='pure');}
 function newRound(){
-  var objs=shuffle(OBJECTS).slice(0,S.count);
-  G={mode:S.mode,n:objs.length,qs:objs.map(function(o){return {obj:o,options:makeOptions(o.L,4)};}),
+  // Prefer unused lengths for pure phase: each object has a unique L in 1..20,
+  // so taking the next PURE_N after the strip pick always avoids strip lengths.
+  var shuffled=shuffle(OBJECTS);
+  var stripObjs=shuffled.slice(0,S.count);
+  var pureObjs=shuffled.slice(S.count,S.count+PURE_N);
+  var qs=stripObjs.map(function(o){return makeQ(o,'strip');})
+           .concat(pureObjs.map(function(o){return makeQ(o,'pure');}));
+  G={mode:S.mode,n:qs.length,stripN:stripObjs.length,pureN:pureObjs.length,qs:qs,
      i:0,stars:0,placed:[],answered:false,selected:null,results:[],nextTimer:null,chosenCount:0};
 }
 
@@ -456,15 +472,19 @@ function startGame(){
 function loadQuestion(){
   G.placed=[];G.answered=false;G.selected=null;
   clearTimeout(G.nextTimer);
-  var q=G.qs[G.i];
+  var q=G.qs[G.i],pure=q.type==='pure';
   $('game').classList.remove('done');
+  $('game').classList.toggle('pure',pure);
   $('qnum').textContent='第 '+(G.i+1)+' / '+G.n+' 題';
   $('starCount').textContent=G.stars;
   $('qline').innerHTML='';$('qline').textContent=qText(q.obj);
   $('btnNext').textContent=(G.i===G.n-1)?'看結果 🏆':'下一題 ▶';
   renderAnswers();
   relayout();
-  if(S.speech)speak(qText(q.obj));
+  if(S.speech){
+    if(pure)speak('純估題。唔好用紙條，直接估多少厘米。'+qText(q.obj));
+    else speak(qText(q.obj));
+  }
 }
 
 /* ================= Layout ================= */
@@ -492,14 +512,14 @@ function relayout(){
   positionBubble();
 }
 function applyScale(s){
-  var m=M;m.s=s;
+  var m=M,pure=isPure();m.s=s;m.pure=pure;
   m.x0=Math.max(16,0.55*s);
   m.stripH=Math.round(clamp(0.95*s,56,78));
-  m.trackH=m.stripH+10;
+  m.trackH=pure?0:(m.stripH+10);
   m.objRowH=Math.max(64,2.95*s);
   m.gap=8;
   m.trackTop=m.objRowH+m.gap;
-  m.rulerTop=m.trackTop+m.trackH+m.gap;
+  m.rulerTop=pure?(m.objRowH+m.gap):(m.trackTop+m.trackH+m.gap);
   m.rulerH=Math.round(clamp(1.25*s,46,100));
   m.bubbleH=Math.round(clamp(0.75*s,36,60));
   m.boardW=Math.round(m.x0+21.75*s);
@@ -548,15 +568,19 @@ function renderBoard(full){
   b.style.width=m.boardW+'px';b.style.height=m.boardH+'px';
   b.className='';
   var html=[];
-  // start line
-  html.push('<div class="startline" style="left:'+(m.x0-1.5)+'px;top:6px;height:'+(m.trackTop+m.trackH)+'px"></div>');
+  var pure=q.type==='pure';
+  // start line (down to rail for strip Qs, or just past the object for pure)
+  var lineH=pure?(m.objRowH+4):(m.trackTop+m.trackH);
+  html.push('<div class="startline" style="left:'+(m.x0-1.5)+'px;top:6px;height:'+lineH+'px"></div>');
   // object
   var ow=o.L*s,oh=o.H*s,top=Math.max(4,(m.objRowH-oh)/2+4);
   html.push('<div class="obj" id="obj" style="left:'+m.x0+'px;top:'+top+'px;width:'+ow+'px;height:'+oh+'px">'+
     '<svg width="'+ow+'" height="'+oh+'" viewBox="0 0 '+o.L+' '+o.H+'" aria-label="'+o.name+'">'+o.draw()+'</svg></div>');
-  // rail
-  html.push('<div class="rail" id="rail" style="left:'+(m.x0-6)+'px;top:'+m.trackTop+'px;width:'+(CAP*s+12)+'px;height:'+m.trackH+'px"></div>');
-  html.push('<div class="railhint" id="railhint" style="left:'+(m.x0+14)+'px;top:'+(m.trackTop+m.trackH/2)+'px;transform:translateY(-50%);font-size:'+clamp(0.48*s,17,32)+'px">⬇ 把紙條拖到這裏，由紅線開始排</div>');
+  // rail (strip questions only)
+  if(!pure){
+    html.push('<div class="rail" id="rail" style="left:'+(m.x0-6)+'px;top:'+m.trackTop+'px;width:'+(CAP*s+12)+'px;height:'+m.trackH+'px"></div>');
+    html.push('<div class="railhint" id="railhint" style="left:'+(m.x0+14)+'px;top:'+(m.trackTop+m.trackH/2)+'px;transform:translateY(-50%);font-size:'+clamp(0.48*s,17,32)+'px">⬇ 把紙條拖到這裏，由紅線開始排</div>');
+  }
   // ruler etc
   html.push('<div class="rulerWrap" style="left:'+(m.x0-0.35*s)+'px;top:'+m.rulerTop+'px;width:'+(21.75*s)+'px;height:'+m.rulerH+'px"><div class="ruler">'+rulerSVG()+'</div></div>');
   html.push('<div class="band" style="left:'+m.x0+'px;top:'+m.rulerTop+'px;height:'+Math.round(m.rulerH*0.42)+'px;width:'+(o.L*s)+'px"></div>');
@@ -593,6 +617,7 @@ function renderPlaced(popLast){
 }
 function renderTray(){
   var t=$('tray');t.innerHTML='';
+  if(isPure())return;
   [10,5,1].forEach(function(len){
     var it=document.createElement('div');it.className='tray-item';it.dataset.len=len;
     it.setAttribute('role','button');it.setAttribute('tabindex','0');it.setAttribute('aria-label',len+'厘米紙條');
@@ -605,7 +630,7 @@ function renderTray(){
 }
 
 /* ================= Strips: add / remove ================= */
-function canEdit(){return G&&!G.answered&&$('game').classList.contains('on');}
+function canEdit(){return G&&!G.answered&&!isPure()&&$('game').classList.contains('on');}
 function addStrip(len){
   if(!canEdit())return false;
   if(railTotal()+len>CAP){
@@ -728,7 +753,7 @@ function reveal(){
   var q=G.qs[G.i],L=q.obj.L,sel=G.selected,correct=(sel===L);
   if(sel!==null)G.chosenCount++;
   if(correct)G.stars++;
-  G.results.push({name:q.obj.name,L:L,chosen:sel,correct:correct});
+  G.results.push({name:q.obj.name,L:L,chosen:sel,correct:correct,type:q.type});
   // buttons
   document.querySelectorAll('.ans').forEach(function(b){
     var v=+b.dataset.v;b.disabled=true;b.classList.remove('sel');
@@ -774,16 +799,17 @@ function showEnd(){
   var stars='';for(var i=0;i<n;i++)stars+=(i<st)?'<span>⭐</span>':'<span class="e">⭐</span>';
   $('endStars').innerHTML=stars;
   var msg;
-  if(t&&G.chosenCount===0){$('endScore').textContent='全班完成了 '+n+' 題！';msg='大家估得真認真！';}
+  if(t&&G.chosenCount===0){$('endScore').textContent='全班完成了 '+n+' 題（'+G.stripN+' 紙條 + '+G.pureN+' 純估）！';msg='大家估得真認真！';}
   else{
-    $('endScore').textContent=(t?'全班':'你')+'得到 '+st+' 粒星（共 '+n+' 題）';
+    $('endScore').textContent=(t?'全班':'你')+'得到 '+st+' 粒星（共 '+n+' 題：'+G.stripN+' 紙條 + '+G.pureN+' 純估）';
     var r=st/n;
     msg=r===1?'太厲害了！全部答對！🏆':r>=0.7?'做得好！你是估量小專家！':r>=0.4?'不錯呀，繼續加油！💪':'多練習，你會越估越準！🌱';
   }
   $('endMsg').textContent=msg;
   $('endList').innerHTML=G.results.map(function(r){
-    var cls=r.chosen===null?'':(r.correct?' ok':' no');
-    return '<span class="chip'+cls+'">'+r.name+' '+r.L+'厘米'+(r.chosen===null?'':(r.correct?' ✓':' ✗'))+'</span>';
+    var cls=(r.chosen===null?'':(r.correct?' ok':' no'))+(r.type==='pure'?' pure':'');
+    var tag=r.type==='pure'?'純估 ':'';
+    return '<span class="chip'+cls+'">'+tag+r.name+' '+r.L+'厘米'+(r.chosen===null?'':(r.correct?' ✓':' ✗'))+'</span>';
   }).join('');
   show('end');
   confetti();SFX.finish();
@@ -817,7 +843,7 @@ $('cfStay').addEventListener('click',function(){$('confirm').classList.remove('o
 $('cfLeave').addEventListener('click',function(){$('confirm').classList.remove('on');goHome();});
 $('btnAgain').addEventListener('click',startGame);
 $('btnHome2').addEventListener('click',goHome);
-function goHome(){stopSpeak();if(G)clearTimeout(G.nextTimer);G=null;document.body.classList.remove('teacher');show('start');syncStartUI();measureVH();}
+function goHome(){stopSpeak();if(G)clearTimeout(G.nextTimer);G=null;document.body.classList.remove('teacher');$('game').classList.remove('pure','done');show('start');syncStartUI();measureVH();}
 document.addEventListener('pointerdown',function(){ac();},{once:true});
 
 var rt=null;
@@ -829,7 +855,7 @@ if(window.visualViewport){try{window.visualViewport.addEventListener('resize',re
 syncStartUI();measureVH();
 
 // test / debug hook (read-only use)
-window.__CM={OBJECTS:OBJECTS,settings:S,makeOptions:makeOptions,get state(){return G;},get metrics(){return M;},relayout:relayout,loadQuestion:loadQuestion};
+window.__CM={OBJECTS:OBJECTS,settings:S,PURE_N:PURE_N,makeOptions:makeOptions,isPure:isPure,get state(){return G;},get metrics(){return M;},relayout:relayout,loadQuestion:loadQuestion};
 })();
 </script>
 </body>
